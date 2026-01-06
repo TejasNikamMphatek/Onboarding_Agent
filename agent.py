@@ -1,3 +1,4 @@
+
 import os
 import json
 import requests
@@ -8,57 +9,103 @@ import time
 
 
 
-# === 1. CONFIGURATION ===
-os.environ["OPENAI_API_KEY"] = "NA"
-FRAPPE_URL = "http://localhost:8000"
-API_KEY = "fe8e26f072ee6aa" 
-API_SECRET = "b82f8b707e46d4c" 
-
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=".env")
 EXCLUDE_EMAILS = ["hr@mphatek.com", "admin@mphatek.com", "administrator"]
 
-# ⚡ HIGH-SPEED LLAMA3 CONFIG
+FRAPPE_URL = "http://localhost:8000"
+
+HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+
+API_KEY = os.getenv("FRAPPE_API_KEY")
+API_SECRET = os.getenv("FRAPPE_API_SECRET")
+
+assert HF_API_KEY, "HUGGINGFACE_API_KEY missing"
+
+assert API_KEY, "FRAPPE_API_KEY missing"
+assert API_SECRET, "FRAPPE_API_SECRET missing"
+
+
+
+
+
 llama_llm = LLM(
-    model="ollama/llama3",
-    base_url="http://localhost:11434",
-    api_key="ollama",
-    temperature=0.2,  # ⚡ Lower = faster + consistent
-    top_p=0.85,  # ⚡ Reduce token generation
-    top_k=40,  # ⚡ Limit choices
+    model="huggingface/meta-llama/Meta-Llama-3-8B-Instruct",
+    api_key=HF_API_KEY,
+    base_url="https://router.huggingface.co/v1",
+    temperature=0.0,
+    max_tokens=512,
 )
 
-headers = {"Authorization": f"token {API_KEY}:{API_SECRET}", "Content-Type": "application/json"}
+
+headers = {
+    "Authorization": f"token {API_KEY}:{API_SECRET}",
+    "Content-Type": "application/json"
+}
 
 # === 2. HELPER FUNCTIONS ===
 # Inside agent.py
-
 def ask_human(field_label, user_id, default=""):
-    from agent_fastapi import answers # Shared Dictionary
+    from agent_fastapi import answers
     import time
     import requests
 
     cache_key = f"{user_id}_{field_label.replace(' ', '_')}"
-    
-    # Clear any old answer for this key
+
     if cache_key in answers:
         del answers[cache_key]
 
-    # 1. Trigger Frappe Popup
     try:
         requests.post(
-            "http://localhost:8000/api/method/hrms.hr.page.pipal_hr_dashboard.pipal_hr_dashboard.trigger_agent_popup",
+            f"{FRAPPE_URL}/api/method/hrms.hr.page.pipal_hr_dashboard.pipal_hr_dashboard.trigger_agent_popup",
             json={"field": field_label, "user_id": user_id, "cache_key": cache_key},
-            headers={"Authorization": "token fe8e26f072ee6aa:b82f8b707e46d4c"},
+            headers=headers,
             timeout=5
         )
     except:
         print(f"⚠️ Could not reach Frappe for {field_label}")
 
-    # 2. WAIT LOOP (Blocking Python execution)
     print(f"⌛ Waiting for HR to answer: {field_label}...")
+
+    timeout = 300  # 5 minutes
+    start = time.time()
+
     while cache_key not in answers:
-        time.sleep(1) # Sleep to save CPU
-    # at the end of ask_human()
+        if time.time() - start > timeout:
+            print(f"⏱️ Timeout waiting for {field_label}, using default")
+            return default
+        time.sleep(1)
+
     return answers.pop(cache_key)
+
+# def ask_human(field_label, user_id, default=""):
+#     from agent_fastapi import answers # Shared Dictionary
+#     import time
+#     import requests
+
+#     cache_key = f"{user_id}_{field_label.replace(' ', '_')}"
+    
+#     # Clear any old answer for this key
+#     if cache_key in answers:
+#         del answers[cache_key]
+
+#     # 1. Trigger Frappe Popup
+#     try:
+#         requests.post(
+#             "http://localhost:8000/api/method/hrms.hr.page.pipal_hr_dashboard.pipal_hr_dashboard.trigger_agent_popup",
+#             json={"field": field_label, "user_id": user_id, "cache_key": cache_key},
+#             headers=headers,
+#             timeout=5
+#         )
+#     except:
+#         print(f"⚠️ Could not reach Frappe for {field_label}")
+
+#     # 2. WAIT LOOP (Blocking Python execution)
+#     print(f"⌛ Waiting for HR to answer: {field_label}...")
+#     while cache_key not in answers:
+#         time.sleep(1) # Sleep to save CPU
+#     # at the end of ask_human()
+#     return answers.pop(cache_key)
 
     # 3. Return the answer and remove from dict
 #     return answers.pop(cache_key)
@@ -507,7 +554,7 @@ crew = Crew(
     agents=[hr_agent],
     tasks=[onboarding_task],
     verbose=False,  # ⚡ Less logging = faster
-    max_iter=10  # ⚡ Global iteration limit
+    max_iter=10 # ⚡ Global iteration limit
 )
 
 # === 7. MAIN EXECUTION ===
