@@ -163,22 +163,47 @@ def employee_exists(user_id):
     except:
         return False
 
+# def submit_to_frappe(data):
+#     """Submit employee data to Frappe"""
+#     url = f"{FRAPPE_URL}/api/resource/Employee"
+#     try:
+#         response = requests.post(url, headers=headers, json=data, timeout=10)
+#         if response.status_code == 200:
+#             emp_id = response.json().get("data", {}).get("name")
+#             print(f"\n✨ SUCCESS: Employee {emp_id} created!")
+#             return True
+#         else:
+#             print(f"\n❌ FRAPPE ERROR: {response.status_code} - {response.text}")
+#             return False
+#     except Exception as e:
+#         print(f"❌ CONNECTION ERROR: {e}")
+#         return False
+    
 def submit_to_frappe(data):
-    """Submit employee data to Frappe"""
     url = f"{FRAPPE_URL}/api/resource/Employee"
     try:
         response = requests.post(url, headers=headers, json=data, timeout=10)
         if response.status_code == 200:
-            emp_id = response.json().get("data", {}).get("name")
+            emp_data = response.json().get("data", {})
+            emp_id = emp_data.get("name")
+            emp_name = f"{data.get('first_name')} {data.get('last_name')}"
+            
             print(f"\n✨ SUCCESS: Employee {emp_id} created!")
+
+            # --- NEW: Call Frappe to trigger the Frontend Alert ---
+            notify_url = f"{FRAPPE_URL}/api/method/hrms.hr.page.pipal_hr_dashboard.pipal_hr_dashboard.notify_employee_created"
+            requests.post(notify_url, headers=headers, json={
+                "employee_name": emp_name,
+                "employee_id": emp_id
+            })
+            # -------------------------------------------------------
+            
             return True
         else:
-            print(f"\n❌ FRAPPE ERROR: {response.status_code} - {response.text}")
             return False
     except Exception as e:
         print(f"❌ CONNECTION ERROR: {e}")
         return False
-
 # === 3. CREWAI TOOLS ===
 
 @tool("fetch_pending_users")
